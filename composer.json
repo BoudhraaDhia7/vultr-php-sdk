@@ -1,6 +1,6 @@
 {
-  "name": "corbpie/vultr-api-v2",
-  "description": "Easy to use Vultr API V2 PHP class wrapper framework.",
+  "name": "boudhraadhia7/vultr-php-sdk",
+  "description": "Vultr API v2 client with Laravel & Symfony friendly configuration.",
   "type": "library",
   "license": "MIT",
   "minimum-stability": "stable",
@@ -22,7 +22,7 @@
   },
   "autoload": {
     "psr-4": {
-      "Corbpie\\VultrAPIv2\\": "src/"
+      "BoudhraaDhia7\\VultrLaravelSymfony\\": "src/"
     }
   }
 }

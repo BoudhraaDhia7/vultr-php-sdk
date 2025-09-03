@@ -1,19 +1,32 @@
 <?php
 
-namespace Corbpie\VultrAPIv2;
+namespace BoudhraaDhia7\VultrLaravelSymfony;
 
 class VultrAPI
 {
-    protected const API_URL = 'https://api.vultr.com/';//API endpoint (Dont change)
-    protected const API_KEY = 'XYZ-ABC-123';//Put your Vultr API key here
-    protected int $instance_id;//Service id set with: setSubId()
+    protected string $API_URL; 
+    protected string $API_KEY;
+    protected ?int $instance_id = null;
     protected array $server_create_details = [];
+    protected $last_response = null;
 
     protected bool $requires_sub_id = false;
 
+    public function __construct(string $apiKey, string $apiUrl = 'https://api.vultr.com/')
+    {
+        $this->API_KEY = $apiKey;
+        $this->API_URL = rtrim($apiUrl, '/').'/';
+    }
+
+
+    public function getLastResponse(): mixed
+    {
+        return $this->last_response;
+    }
+
     public function apiKeyHeader(): array
     {
-        return ["Authorization: Bearer " . self::API_KEY, "Content-Type: application/json"];
+        return ["Authorization: Bearer " . $this->API_KEY, "Content-Type: application/json"];
     }
 
     public function doCall(string $url, string $type = 'GET', bool $return_http_code = false, array $headers = [], array $post_fields = []): array|string|bool
@@ -21,7 +34,7 @@ class VultrAPI
         if ($this->requires_sub_id && !isset($this->instance_id)) {
             return ["No sub id is set, it is needed to perform this action."];
         }
-        $crl = curl_init(self::API_URL . $url);
+        $crl = curl_init($this->API_URL . $url);
         curl_setopt($crl, CURLOPT_CUSTOMREQUEST, $type);
         if ($type === 'POST') {
             curl_setopt($crl, CURLOPT_POST, true);
@@ -47,9 +60,9 @@ class VultrAPI
             return $http_response_code;
         }
         if ($http_response_code === 200 || $http_response_code === 201 || $http_response_code === 202) {
-            return $this->call_data = $call_response;//Return data
+            return $this->last_response = $call_response;//Return data
         }
-        return $this->call_data = ['http_response_code' => $http_response_code];//Call failed
+        return $this->last_response = ['http_response_code' => $http_response_code];//Call failed
     }
 
     public function setSubId(string $instance_id): void

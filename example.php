@@ -1,18 +1,18 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
 
-use Corbpie\VultrAPIv2\VultrAPI;
+use BoudhraaDhia7\VultrLaravelSymfony\VultrAPI;
 
-$vultr = new VultrAPI();
+$vultr = new VultrAPI('PUT_YOUR_API_KEY_HERE');
 
 echo $vultr->listServers();//Data for all current account instances
 
 
 $vultr->setSubId('31828385');//Must be set if interacting with a single instance actions
-$vultr->serverReboot(); //Reboots/restarts instance with id:31828385
+//$vultr->serverReboot(); //Reboots/restarts instance with id:31828385
 
 
-echo $vultr->responseAsString($vultr->serverDestroy());//Prints Success on HTTP 200 returned, else says Failed
+//echo $vultr->responseAsString($vultr->serverDestroy());//Prints Success on HTTP 200 returned, else says Failed
 
 
 $vultr->listRegions();//Returns regions
