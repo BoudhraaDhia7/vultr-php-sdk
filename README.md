@@ -26,7 +26,8 @@ composer require boudhraadhia7/vultr-php-sdk
 
 ```php
 <?php
-use BoudhraaDhia7\vultr-php-sdk\VultrAPI;
+
+use BoudhraaDhia7\VultrLaravelSymfony\VultrAPI;
 
 // Get your API key from environment or config
 $apiKey = $_ENV['VULTR_API_KEY'] ?? getenv('VULTR_API_KEY');
