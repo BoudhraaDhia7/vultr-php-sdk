@@ -6,18 +6,20 @@ class VultrAPI
 {
     protected string $API_URL;
     protected string $API_KEY;
-    protected ?int $instance_id = null;
+    protected ?string $instance_id = null;
     protected array $server_create_details = [];
     protected $last_response = null;
 
     protected bool $requires_sub_id = false;
     protected bool $useTLS;
+    protected bool $debug = false;
 
-    public function __construct(string $apiKey, string $apiUrl = 'https://api.vultr.com/',  bool $useTLS = true)
+    public function __construct(string $apiKey, string $apiUrl = 'https://api.vultr.com/',  bool $useTLS = true, bool $debug = false)
     {
         $this->API_KEY = $apiKey;
         $this->API_URL = rtrim($apiUrl, '/') . '/';
         $this->useTLS  = $useTLS;
+        $this->debug = $debug;
     }
 
     public function getLastResponse(): mixed
@@ -79,21 +81,25 @@ class VultrAPI
             return $this->last_response = [
                 'ok' => false,
                 'http_code' => (int) ($info['http_code'] ?? 0),
-                'curl_errno' => $errno,
-                'curl_error' => $errstr,
-                'request' => [
-                    'url' => $info['url'] ?? $this->API_URL . $url,
-                    'method' => $method,
-                    'headers' => $finalHeaders,
-                    'body' => $body,
-                ],
-                'diagnostics' => [
-                    'total_time' => $info['total_time'] ?? null,
-                    'namelookup_time' => $info['namelookup_time'] ?? null,
-                    'connect_time' => $info['connect_time'] ?? null,
-                    'ssl_verify_result' => $info['ssl_verify_result'] ?? null,
-                ],
-                'response_raw' => $responseRaw,
+
+                // Only include diagnostics and curl error info in debug mode
+                ...($this->debug ? [
+                    'curl_errno' => $errno,
+                    'curl_error' => $errstr,
+                    'request' => [
+                        'url' => $info['url'] ?? $this->API_URL . $url,
+                        'method' => $method,
+                        'headers' => $finalHeaders,
+                        'body' => $body,
+                    ],
+                    'diagnostics' => [
+                        'total_time' => $info['total_time'] ?? null,
+                        'namelookup_time' => $info['namelookup_time'] ?? null,
+                        'connect_time' => $info['connect_time'] ?? null,
+                        'ssl_verify_result' => $info['ssl_verify_result'] ?? null,
+                    ],
+                    'response_raw' => $responseRaw,
+                ] : []),
             ];
         }
 
@@ -112,14 +118,16 @@ class VultrAPI
             'ok' => false,
             'http_code' => $code,
             'error' => is_array($decoded) && isset($decoded['error']) ? $decoded['error'] : null,
-            'response_json' => $decoded,
-            'response_raw' => $responseRaw,
-            'request' => [
-                'url' => $info['url'] ?? $this->API_URL . $url,
-                'method' => $method,
-                'headers' => $finalHeaders,
-                'body' => $body,
-            ],
+            ...($this->debug ? [
+                'response_json' => $decoded,
+                'response_raw' => $responseRaw,
+                'request' => [
+                    'url' => $info['url'] ?? $this->API_URL . $url,
+                    'method' => $method,
+                    'headers' => $finalHeaders,
+                    'body' => $body,
+                ],
+            ] : []),
         ];
     }
 

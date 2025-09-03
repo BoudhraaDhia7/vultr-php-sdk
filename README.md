@@ -38,9 +38,12 @@ use BoudhraaDhia7\VultrLaravelSymfony\VultrAPI;
 // Production (TLS verify ON by default — recommended)
 $vultr = new VultrAPI(config('services.vultr.key'), config('services.vultr.url'));
 
+// Debug mode for more detailed response (false by default)
+$debug = true;
+
 // Localhost/dev with broken CA store (TLS verify OFF):
 // ⚠️ Only for local testing. Never disable in production.
-$devClient = new VultrAPI(config('services.vultr.key'), config('services.vultr.url'), false);
+$devClient = new VultrAPI(config('services.vultr.key'), config('services.vultr.url'), false, $debug);
 
 // List instances (auto adds Bearer & JSON headers; v2 paths)
 $instances = $vultr->doCall('v2/instances', 'GET');
