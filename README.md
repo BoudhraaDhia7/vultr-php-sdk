@@ -17,7 +17,7 @@ Works with any PHP 8.1+ project.
 Install via Composer:
 
 ```bash
-composer require boudhraadhia7/vultr-laravel-symfony
+composer require boudhraadhia7/vultr-php-sdk
 ```
 
 ---
