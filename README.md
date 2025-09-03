@@ -29,36 +29,58 @@ composer require boudhraadhia7/vultr-php-sdk
 
 use BoudhraaDhia7\VultrLaravelSymfony\VultrAPI;
 
-// Get your API key from environment or config
-$apiKey = $_ENV['VULTR_API_KEY'] ?? getenv('VULTR_API_KEY');
+// Laravel: put these in config/services.php
+// 'vultr' => [
+//     'key' => env('VULTR_API_KEY'),
+//     'url' => env('VULTR_API_URL', 'https://api.vultr.com/'),
+// ]
 
-// Initialize the client
-$vultr = new VultrAPI($apiKey);
+// Production (TLS verify ON by default — recommended)
+$vultr = new VultrAPI(config('services.vultr.key'), config('services.vultr.url'));
 
-// List all instances (servers)
-echo $vultr->doCall('v2/instances', 'GET', false, $vultr->apiKeyHeader());
+// Localhost/dev with broken CA store (TLS verify OFF):
+// ⚠️ Only for local testing. Never disable in production.
+$devClient = new VultrAPI(config('services.vultr.key'), config('services.vultr.url'), false);
 
-// List regions
-echo $vultr->doCall('v2/regions', 'GET', false, $vultr->apiKeyHeader());
+// List instances (auto adds Bearer & JSON headers; v2 paths)
+$instances = $vultr->doCall('v2/instances', 'GET');
 
-// List plans
-echo $vultr->doCall('v2/plans', 'GET', false, $vultr->apiKeyHeader());
+// List regions/plans
+$regions = $vultr->doCall('v2/regions', 'GET');
+$plans   = $vultr->doCall('v2/plans', 'GET');
 
-// Create a new server
-$vultr->serverCreateDC('ewr'); // New Jersey, USA
-$vultr->serverCreatePlan('vc2-1c-1gb'); // 1 CPU, 1GB RAM
-$vultr->serverCreateType('OS', '1743'); // Ubuntu 22.04
-$vultr->serverCreateLabel('My Laravel App Server');
-echo $vultr->serverCreate(); // Deploy instance
+// Create a new server (example flow; adjust to your helpers)
+$vultr->serverCreateDC('ewr');             // New Jersey (example)
+$vultr->serverCreatePlan('vc2-1c-1gb');    // 1 vCPU, 1GB RAM (example)
+$vultr->serverCreateType('OS', '1743');    // Ubuntu 22.04 (example)
+$vultr->serverCreateLabel('My Laravel App');
+$createResponse = $vultr->serverCreate(); // returns details/subid
 
 // Manage an existing instance
 $vultr->setSubId('YOUR_INSTANCE_ID');
-$vultr->instanceReboot();    // Reboot
-$vultr->serverStop();        // Stop
-$vultr->instanceDestroy();   // Destroy
-```
+$reboot  = $vultr->doCall("v2/instances/{$vultr->getSubId()}/reboot", 'POST');
+$halt    = $vultr->doCall("v2/instances/{$vultr->getSubId()}/halt", 'POST');
+$destroy = $vultr->doCall("v2/instances/{$vultr->getSubId()}", 'DELETE');
 
----
+// Error handling
+// On failures, doCall() returns an array with:
+// - http_code
+// - curl_errno / curl_error (transport issues => http_code = 0) // 'curl_errno' and 'curl_error' are PHP cURL terms
+// - response_json / response_raw (Vultr often returns {"error": "..."} on 4xx)
+
+### Laravel config snippet (for completeness) <!-- 'Laravel' is a PHP framework name -->
+
+```php
+// config/services.php
+return [
+    // ...
+    'vultr' => [
+        'key' => env('VULTR_API_KEY'),
+        'url' => env('VULTR_API_URL', 'https://api.vultr.com/'),
+    ],
+];
+
+
 
 ## Contributing
 
@@ -75,6 +97,6 @@ Licensed under the [MIT License](LICENSE).
 
 ## Credits
 
-- Original work by corbpie ([GitHub](https://github.com/cp6/Vultr-API-PHP-class))
-- Forked and optimized for Laravel and Symfony by Boudhraa Dhia ([GitHub](https://github.com/boudhraadhia7))
+- Original work by corbpie ([GitHub](https://github.com/cp6/Vultr-API-PHP-class)) <!-- 'corbpie' is a GitHub username -->
+- Forked and optimized for Laravel and Symfony by Boudhraa Dhia ([GitHub](https://github.com/boudhraadhia7)) <!-- 'Laravel', 'Symfony', 'Boudhraa', and 'Dhia' are proper nouns -->
 

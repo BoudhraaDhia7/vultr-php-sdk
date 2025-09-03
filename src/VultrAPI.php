@@ -4,20 +4,21 @@ namespace BoudhraaDhia7\VultrLaravelSymfony;
 
 class VultrAPI
 {
-    protected string $API_URL; 
+    protected string $API_URL;
     protected string $API_KEY;
     protected ?int $instance_id = null;
     protected array $server_create_details = [];
     protected $last_response = null;
 
     protected bool $requires_sub_id = false;
+    protected bool $useTLS;
 
-    public function __construct(string $apiKey, string $apiUrl = 'https://api.vultr.com/')
+    public function __construct(string $apiKey, string $apiUrl = 'https://api.vultr.com/',  bool $useTLS = true)
     {
         $this->API_KEY = $apiKey;
-        $this->API_URL = rtrim($apiUrl, '/').'/';
+        $this->API_URL = rtrim($apiUrl, '/') . '/';
+        $this->useTLS  = $useTLS;
     }
-
 
     public function getLastResponse(): mixed
     {
@@ -26,43 +27,100 @@ class VultrAPI
 
     public function apiKeyHeader(): array
     {
-        return ["Authorization: Bearer " . $this->API_KEY, "Content-Type: application/json"];
+        return ['Authorization: Bearer ' . $this->API_KEY, 'Content-Type: application/json'];
     }
 
-    public function doCall(string $url, string $type = 'GET', bool $return_http_code = false, array $headers = [], array $post_fields = []): array|string|bool
-    {
+    public function doCall(
+        string $url,
+        string $method = 'GET',
+        bool $return_http_code = false,
+        array $headers = [],
+        array $body = [],
+    ): array|string|bool {
         if ($this->requires_sub_id && !isset($this->instance_id)) {
-            return ["No sub id is set, it is needed to perform this action."];
+            return ['error' => 'No sub id is set, it is needed to perform this action.'];
         }
-        $crl = curl_init($this->API_URL . $url);
-        curl_setopt($crl, CURLOPT_CUSTOMREQUEST, $type);
-        if ($type === 'POST') {
-            curl_setopt($crl, CURLOPT_POST, true);
-            if (!empty($post_fields)) {
-                curl_setopt($crl, CURLOPT_POSTFIELDS, json_encode($post_fields));
-            }
-        } elseif ($type === 'PATCH') {
-            curl_setopt($crl, CURLOPT_CUSTOMREQUEST, 'PATCH');
-            curl_setopt($crl, CURLOPT_POSTFIELDS, json_encode($post_fields));
+
+        $ch = curl_init($this->API_URL . ltrim($url, '/'));
+
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
         }
-        if (!empty($headers)) {
-            curl_setopt($crl, CURLOPT_HTTPHEADER, $headers);
+
+        $finalHeaders = array_merge($this->apiKeyHeader(), ['Accept: application/json', 'User-Agent: HostStronger-Laravel-Client/1.0'], $headers);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $finalHeaders);
+
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_ENCODING, 'gzip,deflate');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        if ($this->useTLS) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         }
-        curl_setopt($crl, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($crl, CURLOPT_CONNECTTIMEOUT, 10);
-        curl_setopt($crl, CURLOPT_TIMEOUT, 30);
-        curl_setopt($crl, CURLOPT_ENCODING, 'gzip,deflate');
-        curl_setopt($crl, CURLOPT_RETURNTRANSFER, true);
-        $call_response = curl_exec($crl);
-        $http_response_code = curl_getinfo($crl, CURLINFO_HTTP_CODE);
-        curl_close($crl);
+
+        $responseRaw = curl_exec($ch);
+        $errno = curl_errno($ch);
+        $errstr = curl_error($ch);
+        $info = curl_getinfo($ch);
+        curl_close($ch);
+
         if ($return_http_code) {
-            return $http_response_code;
+            return (int) ($info['http_code'] ?? 0);
         }
-        if ($http_response_code === 200 || $http_response_code === 201 || $http_response_code === 202) {
-            return $this->last_response = $call_response;//Return data
+
+        if ($errno !== 0 || (int) ($info['http_code'] ?? 0) === 0) {
+            return $this->last_response = [
+                'ok' => false,
+                'http_code' => (int) ($info['http_code'] ?? 0),
+                'curl_errno' => $errno,
+                'curl_error' => $errstr,
+                'request' => [
+                    'url' => $info['url'] ?? $this->API_URL . $url,
+                    'method' => $method,
+                    'headers' => $finalHeaders,
+                    'body' => $body,
+                ],
+                'diagnostics' => [
+                    'total_time' => $info['total_time'] ?? null,
+                    'namelookup_time' => $info['namelookup_time'] ?? null,
+                    'connect_time' => $info['connect_time'] ?? null,
+                    'ssl_verify_result' => $info['ssl_verify_result'] ?? null,
+                ],
+                'response_raw' => $responseRaw,
+            ];
         }
-        return $this->last_response = ['http_response_code' => $http_response_code];//Call failed
+
+        $decoded = null;
+        if (is_string($responseRaw) && $responseRaw !== '') {
+            $decoded = json_decode($responseRaw, true);
+        }
+
+        $code = (int) $info['http_code'];
+
+        if (in_array($code, [200, 201, 202, 204], true)) {
+            return $this->last_response = $decoded ?? ($responseRaw ?? true);
+        }
+
+        return $this->last_response = [
+            'ok' => false,
+            'http_code' => $code,
+            'error' => is_array($decoded) && isset($decoded['error']) ? $decoded['error'] : null,
+            'response_json' => $decoded,
+            'response_raw' => $responseRaw,
+            'request' => [
+                'url' => $info['url'] ?? $this->API_URL . $url,
+                'method' => $method,
+                'headers' => $finalHeaders,
+                'body' => $body,
+            ],
+        ];
     }
 
     public function setSubId(string $instance_id): void
@@ -75,13 +133,13 @@ class VultrAPI
      */
     public function listAccountInfo()
     {
-        return $this->doCall("v2/account", "GET", false, $this->apiKeyHeader());
+        return $this->doCall('v2/account', 'GET', false, $this->apiKeyHeader());
     }
 
     public function accountRemainingCredit(): float
     {
         $data = json_decode($this->listAccountInfo());
-        return (str_replace('-', '', $data->balance) - $data->pending_charges);
+        return str_replace('-', '', $data->balance) - $data->pending_charges;
     }
 
     /*
@@ -89,13 +147,13 @@ class VultrAPI
      */
     public function listServers()
     {
-        return $this->doCall("v2/instances", "GET", false, $this->apiKeyHeader());
+        return $this->doCall('v2/instances', 'GET', false, $this->apiKeyHeader());
     }
 
     public function listServer()
     {
         $this->requires_sub_id = true;
-        return $this->doCall("v2/instances/$this->instance_id", "GET", false, $this->apiKeyHeader());
+        return $this->doCall("v2/instances/$this->instance_id", 'GET', false, $this->apiKeyHeader());
     }
 
     public function listIpv4()
@@ -150,7 +208,7 @@ class VultrAPI
     {
         $this->requires_sub_id = true;
         if (!empty($hostname)) {
-            $post = ["hostname" => $hostname];
+            $post = ['hostname' => $hostname];
         } else {
             $post = [];
         }
@@ -199,10 +257,11 @@ class VultrAPI
         return $this->doCall("v2/instances/$this->instance_id/backup-schedule", 'GET', false, $this->apiKeyHeader());
     }
 
-    public function instanceSetBackupSchedule(string $cron_type, int $hour, int $day_of_week, int $day_of_month)// daily|weekly|monthly|daily_alt_even|daily_alt_odd
+    public function instanceSetBackupSchedule(string $cron_type, int $hour, int $day_of_week, int $day_of_month)
     {
+        // daily|weekly|monthly|daily_alt_even|daily_alt_odd
         $this->requires_sub_id = true;
-        $post = ["type" => $cron_type, "hour" => $hour, "dow" => $day_of_week, "dom" => $day_of_month];
+        $post = ['type' => $cron_type, 'hour' => $hour, 'dow' => $day_of_week, 'dom' => $day_of_month];
         return $this->doCall("v2/instances/$this->instance_id/backup-schedule", 'POST', false, $this->apiKeyHeader(), $post);
     }
 
@@ -293,14 +352,14 @@ class VultrAPI
     public function instanceRestoreBackup(string $backup_id)
     {
         $this->requires_sub_id = true;
-        $post = ["backup_id" => $backup_id];
+        $post = ['backup_id' => $backup_id];
         return $this->doCall("v2/instances/$this->instance_id/restore", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
     public function instanceRestoreSnapshot(string $snapshot_id)
     {
         $this->requires_sub_id = true;
-        $post = ["snapshot_id" => $snapshot_id];
+        $post = ['snapshot_id' => $snapshot_id];
         return $this->doCall("v2/instances/$this->instance_id/restore", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
@@ -313,13 +372,13 @@ class VultrAPI
     public function instanceSetReverseIpv4(string $ip, string $reverse)
     {
         $this->requires_sub_id = true;
-        return $this->doCall("v2/instances/$this->instance_id/ipv4/reverse", 'POST', true, $this->apiKeyHeader(), ["ip" => $ip, "reverse" => $reverse]);
+        return $this->doCall("v2/instances/$this->instance_id/ipv4/reverse", 'POST', true, $this->apiKeyHeader(), ['ip' => $ip, 'reverse' => $reverse]);
     }
 
     public function instanceSetReverseIpv6(string $ip, string $reverse)
     {
         $this->requires_sub_id = true;
-        return $this->doCall("v2/instances/$this->instance_id/ipv6/reverse", 'POST', true, $this->apiKeyHeader(), ["ip" => $ip, "reverse" => $reverse]);
+        return $this->doCall("v2/instances/$this->instance_id/ipv6/reverse", 'POST', true, $this->apiKeyHeader(), ['ip' => $ip, 'reverse' => $reverse]);
     }
 
     public function instanceListReverseIpv4()
@@ -352,14 +411,14 @@ class VultrAPI
     public function serverCreateDC(string $dc_id): void
     {
         $this->server_create_details = [
-            "region" => $dc_id
+            'region' => $dc_id,
         ];
     }
 
     public function serverCreatePlan(string $plan_id): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "plan" => $plan_id
+            'plan' => $plan_id,
         ]);
     }
 
@@ -367,21 +426,21 @@ class VultrAPI
     {
         if ($type === 'OS') {
             $this->server_create_details = array_merge($this->server_create_details, [
-                "os_id" => $type_id
+                'os_id' => $type_id,
             ]);
         } elseif ($type === 'SNAPSHOT') {
             $this->server_create_details = array_merge($this->server_create_details, [
-                "snapshot_id" => $type_id
+                'snapshot_id' => $type_id,
             ]);
         } elseif ($type === 'ISO') {
             $this->server_create_details = array_merge($this->server_create_details, [
-                "os_id" => 159,
-                "iso_id" => $type_id
+                'os_id' => 159,
+                'iso_id' => $type_id,
             ]);
         } elseif ($type === 'APP') {
             $this->server_create_details = array_merge($this->server_create_details, [
-                "os_id" => 186,
-                "app_id" => $type_id
+                'os_id' => 186,
+                'app_id' => $type_id,
             ]);
         }
     }
@@ -389,69 +448,69 @@ class VultrAPI
     public function serverCreateLabel(string $label): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "label" => $label
+            'label' => $label,
         ]);
     }
 
     public function serverCreateHostname(string $hostname): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "hostname " => $hostname
+            'hostname ' => $hostname,
         ]);
     }
 
     public function serverCreateWithIpv4(string $ipv4): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "reserved_ipv4 " => $ipv4
+            'reserved_ipv4 ' => $ipv4,
         ]);
     }
 
     public function serverCreateEnableIpv6(bool $ipv6 = true): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "enable_ipv6 " => $ipv6
+            'enable_ipv6 ' => $ipv6,
         ]);
     }
 
     public function serverCreateEnablePrivateNetwork(string $pn = 'yes'): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "enable_private_network " => $pn
+            'enable_private_network ' => $pn,
         ]);
     }
 
     public function serverCreateStartScript(int $script_id): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "script_id " => $script_id
+            'script_id ' => $script_id,
         ]);
     }
 
     public function serverCreateIPXEURL(string $url): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "ipxe_chain_url " => $url
+            'ipxe_chain_url ' => $url,
         ]);
     }
-
 
     public function serverEnableBackups(bool $backups = false): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "backups " => $backups
+            'backups ' => $backups,
         ]);
     }
 
     public function serverCreateEnableDDOSProtection(string $ddos_protection = 'yes'): void
     {
         $this->server_create_details = array_merge($this->server_create_details, [
-            "ddos_protection " => $ddos_protection
+            'ddos_protection ' => $ddos_protection,
         ]);
     }
 
     public function serverCreateOptions(): void
-    {//Shows create server options
+    {
+        //Shows create server options
         echo '<code>serverCreateDC(int $dc_id)</code><br>';
         echo '<code>serverCreatePlan(int $plan_id)</code><br>';
         echo '<code>serverCreateType(string $type, string $type_id)</code><br>';
@@ -479,7 +538,7 @@ class VultrAPI
 
     public function serverCreate()
     {
-        return $this->doCall("v2/instances", 'POST', false, $this->apiKeyHeader(), $this->server_create_details);
+        return $this->doCall('v2/instances', 'POST', false, $this->apiKeyHeader(), $this->server_create_details);
     }
 
     /*
@@ -487,7 +546,7 @@ class VultrAPI
      */
     public function listBackups()
     {
-        return $this->doCall("v2/backups", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/backups', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getBackupData(string $backup_id)
@@ -500,7 +559,7 @@ class VultrAPI
      */
     public function listSnapshots()
     {
-        return $this->doCall("v2/snapshots", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/snapshots', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getSnapshotData(string $snapshot_id)
@@ -511,8 +570,8 @@ class VultrAPI
     public function createSnapshot(string $desc = 'DESC VAR EMPTY')
     {
         $this->requires_sub_id = true;
-        $post = ["instance_id" => $this->instance_id, "description" => $desc];
-        return $this->doCall("v2/snapshots", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['instance_id' => $this->instance_id, 'description' => $desc];
+        return $this->doCall('v2/snapshots', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function deleteSnapshot(string $snapshot_id)
@@ -522,12 +581,12 @@ class VultrAPI
 
     public function createSnapshotFromURL(string $url)
     {
-        return $this->doCall("v2/snapshot/create-from-url", 'POST', false, $this->apiKeyHeader(), ["url" => $url]);
+        return $this->doCall('v2/snapshot/create-from-url', 'POST', false, $this->apiKeyHeader(), ['url' => $url]);
     }
 
     public function updateSnapshot(string $snapshot_id, string $description)
     {
-        return $this->doCall("v2/snapshots/$snapshot_id", 'PUT', false, $this->apiKeyHeader(), ["description" => $description]);
+        return $this->doCall("v2/snapshots/$snapshot_id", 'PUT', false, $this->apiKeyHeader(), ['description' => $description]);
     }
 
     /*
@@ -535,25 +594,25 @@ class VultrAPI
      */
     public function createStartupScript(string $script_name, string $type, string $script)
     {
-        $post = ["name" => $script_name, "type" => $type, "script" => $script];
-        return $this->doCall("v2/startup-scripts", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['name' => $script_name, 'type' => $type, 'script' => $script];
+        return $this->doCall('v2/startup-scripts', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function destroyStartupScript(string $script_id)
     {
-        $post = ["startup-id" => $script_id];
-        return $this->doCall("v2/startup-scripts/destroy", 'DELETE', true, $this->apiKeyHeader(), $post);
+        $post = ['startup-id' => $script_id];
+        return $this->doCall('v2/startup-scripts/destroy', 'DELETE', true, $this->apiKeyHeader(), $post);
     }
 
     public function updateStartupScript(string $script_id, string $name, string $type, string $script)
     {
-        $post = ["startup-id" => $script_id, "name" => $name, "type" => $type, "script" => $script];
-        return $this->doCall("v2/startup-scripts/update", 'PATCH', true, $this->apiKeyHeader(), $post);
+        $post = ['startup-id' => $script_id, 'name' => $name, 'type' => $type, 'script' => $script];
+        return $this->doCall('v2/startup-scripts/update', 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
     public function listStartupScripts()
     {
-        return $this->doCall("v2/startup-scripts", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/startup-scripts', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getStartupScriptData(string $script_id)
@@ -566,8 +625,8 @@ class VultrAPI
      */
     public function createSSHKey(string $key_name, string $key)
     {
-        $post = ["name" => $key_name, "ssh_key" => $key];
-        return $this->doCall("v2/ssh-keys", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['name' => $key_name, 'ssh_key' => $key];
+        return $this->doCall('v2/ssh-keys', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function destroySSHKey(string $ssh_key_id)
@@ -577,13 +636,13 @@ class VultrAPI
 
     public function updateSSHKey(string $ssh_key_id, string $key_name, string $key)
     {
-        $post = ["name" => $key_name, "ssh_key" => $key];
+        $post = ['name' => $key_name, 'ssh_key' => $key];
         return $this->doCall("v2/ssh-keys/$ssh_key_id", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
     public function listSSHKeys()
     {
-        return $this->doCall("v2/ssh-keys", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/ssh-keys', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getSSHKeyData(string $ssh_key_id)
@@ -596,27 +655,27 @@ class VultrAPI
      */
     public function listReservedIps()
     {
-        return $this->doCall("v2/reserved-ips", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/reserved-ips', 'GET', false, $this->apiKeyHeader());
     }
 
     public function attachIp(string $ip_address)
     {
         $this->requires_sub_id = true;
-        $post = ["instance_id" => $this->instance_id];
+        $post = ['instance_id' => $this->instance_id];
         return $this->doCall("v2/reserved-ips/$ip_address/attach", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
     public function convertIp(string $ip_address, string $label)
     {
         $this->requires_sub_id = true;
-        $post = ["label" => $label, "ip_address" => $ip_address];
-        return $this->doCall("v2/reserved-ips/convert", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['label' => $label, 'ip_address' => $ip_address];
+        return $this->doCall('v2/reserved-ips/convert', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function createIp(string $ip_type, string $region, string $label)
     {
-        $post = ["region" => $region, "ip_type" => $ip_type, "label" => $label];
-        return $this->doCall("v2/reserved-ips", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['region' => $region, 'ip_type' => $ip_type, 'label' => $label];
+        return $this->doCall('v2/reserved-ips', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function destroyIp(string $ip_address)
@@ -635,7 +694,7 @@ class VultrAPI
      */
     public function listISOs()
     {
-        return $this->doCall("v2/iso", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/iso', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getISOData(string $iso_id)
@@ -645,12 +704,12 @@ class VultrAPI
 
     public function listPublicISOs()
     {
-        return $this->doCall("v2/iso-public", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/iso-public', 'GET', false, $this->apiKeyHeader());
     }
 
     public function uploadISO(string $iso_url)
     {
-        return $this->doCall("v2/iso", 'POST', false, $this->apiKeyHeader(), ["url" => $iso_url]);
+        return $this->doCall('v2/iso', 'POST', false, $this->apiKeyHeader(), ['url' => $iso_url]);
     }
 
     public function destroyISO(string $iso_id)
@@ -663,7 +722,7 @@ class VultrAPI
      */
     public function listBlockStorage()
     {
-        return $this->doCall("v2/blocks", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/blocks', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getBlockStorageData(string $block_id)
@@ -674,13 +733,13 @@ class VultrAPI
     public function createBlockStorage(string $region_id, int $size_gb, string $label = '')
     {
         $values = ['region' => $region_id, 'size_gb' => $size_gb, 'label' => $label];
-        return $this->doCall("v2/blocks", 'POST', false, $this->apiKeyHeader(), $values);
+        return $this->doCall('v2/blocks', 'POST', false, $this->apiKeyHeader(), $values);
     }
 
     public function attachBlockStorage(string $block_id, bool $live)
     {
         $this->requires_sub_id = true;
-        $post = ["instance_id" => $this->instance_id, "live" => $live];
+        $post = ['instance_id' => $this->instance_id, 'live' => $live];
         return $this->doCall("v2/blocks/$block_id/attach", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
@@ -691,19 +750,19 @@ class VultrAPI
 
     public function detachBlockStorage(string $block_id, bool $live = true)
     {
-        $post = ["live" => $live];
+        $post = ['live' => $live];
         return $this->doCall("v2/blocks/$block_id/detach", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
     public function labelBlockStorage(string $block_id, string $label)
     {
-        $post = ["label" => $label];
+        $post = ['label' => $label];
         return $this->doCall("v2/blocks/$block_id", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
     public function resizeBlockStorage(string $block_id, int $size_gb)
     {
-        $post = ["size_gb" => $size_gb];
+        $post = ['size_gb' => $size_gb];
         return $this->doCall("v2/blocks/$block_id", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
@@ -712,7 +771,7 @@ class VultrAPI
      */
     public function listDNS()
     {
-        return $this->doCall("v2/domains", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/domains', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getDNSData(string $domain)
@@ -722,19 +781,19 @@ class VultrAPI
 
     public function dnsCreateDomain(string $domain, string $server_ip, bool $dns_sec = false)
     {
-        $post = ["domain" => $domain, "serverip" => $server_ip, "dns_sec" => $dns_sec];
-        return $this->doCall("v2/domains", 'POST', true, $this->apiKeyHeader(), $post);
+        $post = ['domain' => $domain, 'serverip' => $server_ip, 'dns_sec' => $dns_sec];
+        return $this->doCall('v2/domains', 'POST', true, $this->apiKeyHeader(), $post);
     }
 
     public function dnsCreateRecord(string $domain, string $name, string $type, string $data)
     {
-        $post = ["domain" => $domain, "name" => $name, "type" => $type, "data" => $data];
+        $post = ['domain' => $domain, 'name' => $name, 'type' => $type, 'data' => $data];
         return $this->doCall("v2/domains/$domain/record", 'POST', true, $this->apiKeyHeader(), $post);
     }
 
     public function dnsDeleteDomain(string $domain)
     {
-        return $this->doCall("v2/domains", 'DELETE', true, $this->apiKeyHeader(), ["domain" => $domain]);
+        return $this->doCall('v2/domains', 'DELETE', true, $this->apiKeyHeader(), ['domain' => $domain]);
     }
 
     public function dnsDeleteRecord(string $domain, string $record_id)
@@ -744,18 +803,18 @@ class VultrAPI
 
     public function dnsEnableDNSSEC(string $domain, string $status = 'enable')
     {
-        return $this->doCall("v2/domains/$domain", 'PUT', true, $this->apiKeyHeader(), ["dns_sec" => $status]);
+        return $this->doCall("v2/domains/$domain", 'PUT', true, $this->apiKeyHeader(), ['dns_sec' => $status]);
     }
 
     public function dnsUpdateSOA(string $domain, string $nsprimary, string $email)
     {
-        $post = ["nsprimary" => $nsprimary, "email" => $email];
+        $post = ['nsprimary' => $nsprimary, 'email' => $email];
         return $this->doCall("v2/domains/$domain/soa", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
     public function dnsUpdateRecord(string $domain, string $record_id, string $name, string $data)
     {
-        $post = ["name" => $name, "data" => $data];
+        $post = ['name' => $name, 'data' => $data];
         return $this->doCall("v2/domains/$domain/record/$record_id", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
@@ -777,27 +836,30 @@ class VultrAPI
     /*
      * PLANS
      */
-    public function listPlans(string $type = 'all')// all|vc2|ssd|vdc2|dedicated|vc2z
+    public function listPlans(string $type = 'all')
     {
+        // all|vc2|ssd|vdc2|dedicated|vc2z
         return $this->doCall("v2/plans?type=$type", 'GET', false);
     }
 
     public function listBareMetalPlans()
     {
-        return $this->doCall("v2/plans-metal", 'GET', false);
+        return $this->doCall('v2/plans-metal', 'GET', false);
     }
 
     /*
      * REGIONS
      */
-    public function listRegions()// List regions that only have plans available
+    public function listRegions()
     {
-        return $this->doCall("v2/regions", 'GET', false);
+        // List regions that only have plans available
+        return $this->doCall('v2/regions', 'GET', false);
     }
 
-    public function regionAvailability(string $region_id, string $type = 'all')// all|vc2|ssd|vdc2|dedicated|vc2z
+    public function regionAvailability(string $region_id, string $type = 'all')
     {
-        return $this->doCall("v2/regions/$region_id/availability", 'GET', false, [], ["type" => $type]);
+        // all|vc2|ssd|vdc2|dedicated|vc2z
+        return $this->doCall("v2/regions/$region_id/availability", 'GET', false, [], ['type' => $type]);
     }
 
     /*
@@ -805,7 +867,7 @@ class VultrAPI
      */
     public function listOS()
     {
-        return $this->doCall("v2/os", 'GET', false);
+        return $this->doCall('v2/os', 'GET', false);
     }
 
     public function osName(int $os_id): string
@@ -824,7 +886,7 @@ class VultrAPI
      */
     public function listApps()
     {
-        return $this->doCall("v2/applications", 'GET', false);
+        return $this->doCall('v2/applications', 'GET', false);
     }
 
     /*
@@ -832,7 +894,7 @@ class VultrAPI
      */
     public function getUsers()
     {
-        return $this->doCall("v2/users", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/users', 'GET', false, $this->apiKeyHeader());
     }
 
     public function listUser(string $user_id)
@@ -843,12 +905,13 @@ class VultrAPI
     public function createUser(string $email, string $name, string $password, bool $api_enabled = false, array $acls = ['subscriptions_view'])
     {
         $post = [
-            "email" => $email,
-            "name" => $name,
-            "password" => $password,
-            "api_enabled" => $api_enabled,
-            "acls" => $acls];
-        return $this->doCall("v2/users", 'POST', false, $this->apiKeyHeader(), $post);
+            'email' => $email,
+            'name' => $name,
+            'password' => $password,
+            'api_enabled' => $api_enabled,
+            'acls' => $acls,
+        ];
+        return $this->doCall('v2/users', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function deleteUser(string $user_id)
@@ -859,11 +922,12 @@ class VultrAPI
     public function updateUser(string $user_id, string $email, string $name, string $password, bool $api_enabled = false, array $acls = ['subscriptions_view'])
     {
         $post = [
-            "email" => $email,
-            "name" => $name,
-            "password" => $password,
-            "api_enabled" => $api_enabled,
-            "acls" => $acls];
+            'email' => $email,
+            'name' => $name,
+            'password' => $password,
+            'api_enabled' => $api_enabled,
+            'acls' => $acls,
+        ];
         return $this->doCall("v2/users/$user_id", 'PATCH', true, $this->apiKeyHeader(), $post);
     }
 
@@ -872,7 +936,7 @@ class VultrAPI
      */
     public function listObjectStorage()
     {
-        return $this->doCall("v2/object-storage", 'GET', false, $this->apiKeyHeader());
+        return $this->doCall('v2/object-storage', 'GET', false, $this->apiKeyHeader());
     }
 
     public function getObjectStorageData(string $obj_id)
@@ -882,13 +946,13 @@ class VultrAPI
 
     public function listObjectStorageCluster()
     {
-        return $this->doCall("v2/object-storage/clusters", 'GET', false);
+        return $this->doCall('v2/object-storage/clusters', 'GET', false);
     }
 
     public function createObjectStorage(int $cluster_id, string $label)
     {
-        $post = ["cluster_id" => $cluster_id, "label" => $label];
-        return $this->doCall("v2/object-storage", 'POST', false, $this->apiKeyHeader(), $post);
+        $post = ['cluster_id' => $cluster_id, 'label' => $label];
+        return $this->doCall('v2/object-storage', 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     public function deleteObjectStorage(string $obj_id)
@@ -898,31 +962,31 @@ class VultrAPI
 
     public function labelObjectStorage(string $label, string $obj_id)
     {
-        return $this->doCall("v2/object-storage/$obj_id", 'PUT', true, $this->apiKeyHeader(), ["label" => $label]);
+        return $this->doCall("v2/object-storage/$obj_id", 'PUT', true, $this->apiKeyHeader(), ['label' => $label]);
     }
 
     public function s3keyRegenObjectStorage(string $obj_id)
     {
-        $post = ["object-storage-id" => $obj_id];
+        $post = ['object-storage-id' => $obj_id];
         return $this->doCall("v2/object-storage/$obj_id/regenerate-keys", 'POST', false, $this->apiKeyHeader(), $post);
     }
 
     /*
      * HELPER FUNCTIONS
-    */
+     */
     public function convertBytes(int $bytes, string $convert_to = 'GB', bool $format = true, int $decimals = 2): float|int
     {
         if ($convert_to === 'GB') {
-            $value = ($bytes / 1073741824);
+            $value = $bytes / 1073741824;
         } elseif ($convert_to === 'MB') {
-            $value = ($bytes / 1048576);
+            $value = $bytes / 1048576;
         } elseif ($convert_to === 'KB') {
-            $value = ($bytes / 1024);
+            $value = $bytes / 1024;
         } else {
             $value = $bytes;
         }
         if ($format) {
-            return (float)number_format($value, $decimals);
+            return (float) number_format($value, $decimals);
         }
 
         return $value;
@@ -930,7 +994,6 @@ class VultrAPI
 
     public function boolToInt(bool $bool): int
     {
-        return ($bool) ? 1 : 0;
+        return $bool ? 1 : 0;
     }
-
 }
