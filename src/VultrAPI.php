@@ -48,7 +48,7 @@ class VultrAPI
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
         }
 
-        $finalHeaders = array_merge($this->apiKeyHeader(), ['Accept: application/json', 'User-Agent: HostStronger-Laravel-Client/1.0'], $headers);
+        $finalHeaders = $this->apiKeyHeader();
         curl_setopt($ch, CURLOPT_HTTPHEADER, $finalHeaders);
 
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
