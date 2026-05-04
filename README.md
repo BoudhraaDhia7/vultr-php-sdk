@@ -1,4 +1,4 @@
-# Vultr API v2 PHP Client (Laravel & Symfony Ready)
+# Vultr API v2 PHP Client (Laravel & Symfony)
 
 A modern PHP client for the [Vultr API v2](https://www.vultr.com/api/), optimized for **Laravel** and **Symfony**.  
 Works with any PHP 8.1+ project.
