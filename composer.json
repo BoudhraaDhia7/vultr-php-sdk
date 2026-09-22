@@ -1,28 +1,77 @@
 {
-  "name": "boudhraadhia7/vultr-php-sdk",
-  "description": "Vultr API v2 client with Laravel & Symfony friendly configuration.",
-  "type": "library",
-  "license": "MIT",
-  "minimum-stability": "stable",
-  "authors": [
-    {
-      "name": "corbpie",
-      "email": "contact@corbpie.com"
-    }
-  ],
-  "repositories": [
-    {
-      "type": "vcs",
-      "url": "https://github.com/cp6/Vultr-API-PHP-class"
-    }
-  ],
-  "require": {
-    "php": "^8.2",
-    "ext-curl": "*"
-  },
-  "autoload": {
-    "psr-4": {
-      "BoudhraaDhia7\\VultrLaravelSymfony\\": "src/"
-    }
-  }
+    "name": "boudhraadhia7/vultr-php-sdk",
+    "description": "A modern, typed PHP client for the Vultr API v2 with retries, cursor pagination and PSR-18 support.",
+    "type": "library",
+    "keywords": [
+        "vultr",
+        "vultr-api",
+        "sdk",
+        "api-client",
+        "cloud",
+        "vps",
+        "psr-18"
+    ],
+    "homepage": "https://github.com/BoudhraaDhia7/vultr-php-sdk",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Boudhraa Dhiaeddine",
+            "email": "dhia.b@externalisation.eu",
+            "homepage": "https://github.com/BoudhraaDhia7",
+            "role": "Maintainer"
+        },
+        {
+            "name": "corbpie",
+            "email": "contact@corbpie.com",
+            "homepage": "https://github.com/cp6",
+            "role": "Original author"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/BoudhraaDhia7/vultr-php-sdk/issues",
+        "source": "https://github.com/BoudhraaDhia7/vultr-php-sdk"
+    },
+    "require": {
+        "php": "^8.2",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "nyholm/psr7": "^1.8",
+        "phpstan/phpstan": "^2.0",
+        "phpunit/phpunit": "^11.3",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1"
+    },
+    "suggest": {
+        "psr/http-client": "Required to plug a PSR-18 client (Guzzle, Symfony HttpClient) into Psr18HttpClient.",
+        "psr/http-factory": "Required to plug PSR-17 factories into Psr18HttpClient."
+    },
+    "autoload": {
+        "psr-4": {
+            "BoudhraaDhia7\\Vultr\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "BoudhraaDhia7\\Vultr\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "qa": [
+            "@cs",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }
